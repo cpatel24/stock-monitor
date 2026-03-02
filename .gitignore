@@ -1,0 +1,30 @@
+# Environment — contains real secrets, never commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# SQLite (old local DB, replaced by PostgreSQL)
+*.db
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Claude Code session files
+.claude/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp

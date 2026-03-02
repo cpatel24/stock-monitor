@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Monitor</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <style>
+    body { background: #f0f2f5; }
+    .sidebar { min-height: calc(100vh - 56px); background: #fff; border-right: 1px solid #dee2e6; }
+    .card-panel { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+    .badge-live { background: #198754; }
+    .badge-closed { background: #6c757d; }
+    .price-up   { color: #198754; font-weight: 600; }
+    .price-down { color: #dc3545; font-weight: 600; }
+    .alert-above { background: #fff3cd; }
+    .alert-below { background: #f8d7da; }
+    .spinner-sm { width: 1rem; height: 1rem; }
+  </style>
+</head>
+<body>
+
+<!-- ── Navbar ── -->
+<nav class="navbar navbar-dark bg-dark px-3 d-flex justify-content-between">
+  <span class="navbar-brand mb-0 h1"><i class="bi bi-graph-up-arrow me-2"></i>Stock Monitor</span>
+  <div class="d-flex align-items-center gap-3">
+    <span id="marketBadge" class="badge rounded-pill fs-6">⏳ Loading…</span>
+    <span id="navUserName" class="text-white small d-none"></span>
+    <button id="logoutBtn" class="btn btn-sm btn-outline-light d-none" onclick="logout()">
+      <i class="bi bi-box-arrow-right"></i> Logout
+    </button>
+  </div>
+</nav>
+
+<div class="container-fluid">
+  <div class="row">
+
+    <!-- ── Right: Stock panel (full width now, single-user) ── -->
+    <div class="col-12 p-4" id="mainContent" style="display:none">
+
+      <!-- User card -->
+      <div class="card-panel p-3 mb-4 d-flex justify-content-between align-items-center">
+        <div>
+          <h5 class="mb-0" id="panelUserName"></h5>
+          <span class="text-muted small" id="panelUserEmail"></span>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteCurrentUser()">
+            <i class="bi bi-trash"></i> Delete Account
+          </button>
+        </div>
+      </div>
+
+      <!-- Stocks table -->
+      <div class="card-panel p-3 mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h6 class="mb-0 fw-bold">Watchlist</h6>
+          <div class="d-flex gap-2">
+            <button id="checkNowBtn" class="btn btn-sm btn-success" onclick="checkNow()">
+              <i class="bi bi-arrow-clockwise"></i> Check Prices Now
+            </button>
+            <button id="addStockBtn" class="btn btn-sm btn-primary" onclick="openAddStockModal()">
+              <i class="bi bi-plus-lg"></i> Add Stock
+            </button>
+          </div>
+        </div>
+
+        <div id="stockTableWrap">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Ticker</th>
+                <th>Company</th>
+                <th>Last Price</th>
+                <th>Upper $</th>
+                <th>Lower $</th>
+                <th>Email Alert</th>
+                <th>Last Checked</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="stockTableBody"></tbody>
+          </table>
+          <div id="noStocksMsg" class="text-center text-muted py-3 d-none">
+            No stocks yet — click <strong>Add Stock</strong> to get started.
+          </div>
+        </div>
+      </div>
+
+      <!-- Alerts log -->
+      <div class="card-panel p-3">
+        <h6 class="fw-bold mb-3">Recent Alerts</h6>
+        <div id="alertsTableWrap">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Time</th>
+                <th>Ticker</th>
+                <th>Price</th>
+                <th>Direction</th>
+                <th>Threshold</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="alertsTableBody"></tbody>
+          </table>
+          <div id="noAlertsMsg" class="text-center text-muted py-3 d-none">No alerts yet.</div>
+        </div>
+      </div>
+
+    </div><!-- /mainContent -->
+  </div>
+</div>
+
+<!-- ── Auth Modal (Login / Register) ── -->
+<div class="modal fade" id="authModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="authModalTitle">Sign In</h5>
+      </div>
+      <div class="modal-body">
+        <!-- Login form -->
+        <div id="loginForm">
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-control" id="loginEmail" autocomplete="email" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-control" id="loginPassword" autocomplete="current-password"
+                   onkeydown="if(event.key==='Enter') doLogin()" />
+          </div>
+          <div id="loginError" class="alert alert-danger d-none"></div>
+          <button class="btn btn-primary w-100" onclick="doLogin()">Sign In</button>
+          <hr />
+          <p class="text-center mb-0">No account? <a href="#" onclick="showRegister()">Register</a></p>
+        </div>
+
+        <!-- Register form -->
+        <div id="registerForm" class="d-none">
+          <div class="mb-3">
+            <label class="form-label">Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="regName" autocomplete="name" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email <span class="text-danger">*</span></label>
+            <input type="email" class="form-control" id="regEmail" autocomplete="email" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Password <span class="text-muted small">(min 8 chars)</span></label>
+            <input type="password" class="form-control" id="regPassword" autocomplete="new-password" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Phone <span class="text-muted small">(optional)</span></label>
+            <input type="tel" class="form-control" id="regPhone" />
+          </div>
+          <div id="registerError" class="alert alert-danger d-none"></div>
+          <button class="btn btn-success w-100" onclick="doRegister()">Create Account</button>
+          <hr />
+          <p class="text-center mb-0">Already have an account? <a href="#" onclick="showLogin()">Sign In</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Stock Modal ── -->
+<div class="modal fade" id="stockModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Stock</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Ticker Symbol <span class="text-danger">*</span></label>
+          <div class="input-group">
+            <input type="text" class="form-control text-uppercase" id="sTicker" placeholder="e.g. AAPL" maxlength="16" />
+            <button class="btn btn-outline-secondary" type="button" onclick="validateTicker()">
+              <span id="validateSpinner" class="spinner-border spinner-sm d-none"></span>
+              Validate
+            </button>
+          </div>
+          <div id="tickerFeedback" class="form-text"></div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Upper Threshold ($) <span class="text-muted small">(alert when price goes above)</span></label>
+          <input type="number" step="0.01" min="0.01" class="form-control" id="sUpper" placeholder="Optional" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Lower Threshold ($) <span class="text-muted small">(alert when price falls below)</span></label>
+          <input type="number" step="0.01" min="0.01" class="form-control" id="sLower" placeholder="Optional" />
+        </div>
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" id="sAlertEmail" checked />
+          <label class="form-check-label" for="sAlertEmail">Email alerts</label>
+        </div>
+        <div id="stockModalError" class="alert alert-danger d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveStock()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit Stock Modal ── -->
+<div class="modal fade" id="editStockModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Stock — <span id="editStockTicker"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Upper Threshold ($)</label>
+          <input type="number" step="0.01" min="0.01" class="form-control" id="esUpper" placeholder="Optional" />
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Lower Threshold ($)</label>
+          <input type="number" step="0.01" min="0.01" class="form-control" id="esLower" placeholder="Optional" />
+        </div>
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" id="esAlertEmail" />
+          <label class="form-check-label" for="esAlertEmail">Email alerts</label>
+        </div>
+        <div class="form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="esActive" />
+          <label class="form-check-label" for="esActive">Active</label>
+        </div>
+        <div id="editStockError" class="alert alert-danger d-none mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="saveEditStock()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentUser = null;   // { access_token, user_id, name, email }
+let editingStockId = null;
+let validatedTicker = null;
+
+const authModal      = new bootstrap.Modal(document.getElementById('authModal'));
+const stockModal     = new bootstrap.Modal(document.getElementById('stockModal'));
+const editStockModal = new bootstrap.Modal(document.getElementById('editStockModal'));
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  const stored = localStorage.getItem('sm_token');
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      currentUser = parsed;
+      showApp();
+      await Promise.all([loadStocks(), loadAlerts(), refreshStatus()]);
+      setInterval(refreshStatus, 30000);
+      return;
+    } catch {
+      localStorage.removeItem('sm_token');
+    }
+  }
+  showLogin();
+  authModal.show();
+}
+
+function showApp() {
+  document.getElementById('mainContent').style.display = '';
+  document.getElementById('navUserName').textContent = currentUser.name;
+  document.getElementById('navUserName').classList.remove('d-none');
+  document.getElementById('logoutBtn').classList.remove('d-none');
+  document.getElementById('panelUserName').textContent = currentUser.name;
+  document.getElementById('panelUserEmail').textContent = currentUser.email;
+}
+
+function logout() {
+  localStorage.removeItem('sm_token');
+  currentUser = null;
+  document.getElementById('mainContent').style.display = 'none';
+  document.getElementById('navUserName').classList.add('d-none');
+  document.getElementById('logoutBtn').classList.add('d-none');
+  showLogin();
+  authModal.show();
+}
+
+// ── Auth modal helpers ─────────────────────────────────────────────────────────
+function showLogin() {
+  document.getElementById('authModalTitle').textContent = 'Sign In';
+  document.getElementById('loginForm').classList.remove('d-none');
+  document.getElementById('registerForm').classList.add('d-none');
+  document.getElementById('loginError').classList.add('d-none');
+}
+
+function showRegister() {
+  document.getElementById('authModalTitle').textContent = 'Create Account';
+  document.getElementById('loginForm').classList.add('d-none');
+  document.getElementById('registerForm').classList.remove('d-none');
+  document.getElementById('registerError').classList.add('d-none');
+}
+
+async function doLogin() {
+  const email    = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl    = document.getElementById('loginError');
+  errEl.classList.add('d-none');
+  try {
+    const data = await apiAnon('POST', '/api/auth/login', { email, password });
+    currentUser = data;
+    localStorage.setItem('sm_token', JSON.stringify(data));
+    authModal.hide();
+    showApp();
+    await Promise.all([loadStocks(), loadAlerts(), refreshStatus()]);
+    setInterval(refreshStatus, 30000);
+  } catch (e) { showErr(errEl, e.message); }
+}
+
+async function doRegister() {
+  const name     = document.getElementById('regName').value.trim();
+  const email    = document.getElementById('regEmail').value.trim();
+  const password = document.getElementById('regPassword').value;
+  const phone    = document.getElementById('regPhone').value.trim();
+  const errEl    = document.getElementById('registerError');
+  errEl.classList.add('d-none');
+  if (!name || !email || !password) { showErr(errEl, 'Name, email and password are required'); return; }
+  try {
+    const data = await apiAnon('POST', '/api/auth/register', {
+      name, email, password, phone: phone || null
+    });
+    currentUser = data;
+    localStorage.setItem('sm_token', JSON.stringify(data));
+    authModal.hide();
+    showApp();
+    await Promise.all([loadStocks(), loadAlerts(), refreshStatus()]);
+    setInterval(refreshStatus, 30000);
+  } catch (e) { showErr(errEl, e.message); }
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────────
+async function refreshStatus() {
+  try {
+    const s = await api('GET', '/api/status');
+    const badge = document.getElementById('marketBadge');
+    if (s.market_open) {
+      badge.textContent = '🟢 Market Open';
+      badge.className = 'badge rounded-pill fs-6 badge-live';
+    } else {
+      badge.textContent = '🔴 Outside Market Hours';
+      badge.className = 'badge rounded-pill fs-6 badge-closed';
+    }
+  } catch {}
+}
+
+// ── API helpers ────────────────────────────────────────────────────────────────
+async function apiAnon(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (res.status === 204) return null;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  return data;
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (currentUser?.access_token) {
+    opts.headers['Authorization'] = `Bearer ${currentUser.access_token}`;
+  }
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (res.status === 401) {
+    localStorage.removeItem('sm_token');
+    currentUser = null;
+    document.getElementById('mainContent').style.display = 'none';
+    document.getElementById('navUserName').classList.add('d-none');
+    document.getElementById('logoutBtn').classList.add('d-none');
+    showLogin();
+    authModal.show();
+    throw new Error('Session expired — please sign in again');
+  }
+  if (res.status === 204) return null;
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+  return data;
+}
+
+// ── User ───────────────────────────────────────────────────────────────────────
+async function deleteCurrentUser() {
+  if (!currentUser) return;
+  if (!confirm(`Delete your account and all your stocks? This cannot be undone.`)) return;
+  try {
+    await api('DELETE', `/api/users/${currentUser.user_id}`);
+    logout();
+  } catch (e) { alert(e.message); }
+}
+
+// ── Stocks ─────────────────────────────────────────────────────────────────────
+async function loadStocks() {
+  if (!currentUser) return;
+  const stocks = await api('GET', `/api/users/${currentUser.user_id}/stocks`);
+  renderStocks(stocks);
+  document.getElementById('addStockBtn').disabled = stocks.length >= 5;
+}
+
+function renderStocks(stocks) {
+  const tbody = document.getElementById('stockTableBody');
+  const noMsg = document.getElementById('noStocksMsg');
+  if (!stocks.length) {
+    tbody.innerHTML = '';
+    noMsg.classList.remove('d-none');
+    return;
+  }
+  noMsg.classList.add('d-none');
+  tbody.innerHTML = stocks.map(s => {
+    const price   = s.last_price != null ? `<span class="font-monospace">$${s.last_price.toFixed(2)}</span>` : '<span class="text-muted">—</span>';
+    const upper   = s.upper_threshold != null ? `$${s.upper_threshold.toFixed(2)}` : '—';
+    const lower   = s.lower_threshold != null ? `$${s.lower_threshold.toFixed(2)}` : '—';
+    const checked = s.last_checked ? new Date(s.last_checked + 'Z').toLocaleTimeString() : '—';
+    const emailBadge  = s.alert_email ? '<span class="badge bg-success">On</span>' : '<span class="badge bg-secondary">Off</span>';
+    const activeBadge = !s.is_active  ? '<span class="badge bg-warning text-dark ms-1">Paused</span>' : '';
+    return `
+      <tr>
+        <td><strong>${esc(s.ticker)}</strong>${activeBadge}</td>
+        <td class="text-muted small">${esc(s.company_name)}</td>
+        <td>${price}</td>
+        <td>${upper}</td>
+        <td>${lower}</td>
+        <td>${emailBadge}</td>
+        <td class="text-muted small">${checked}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick='openEditStockModal(${JSON.stringify(s)})'>
+            <i class="bi bi-pencil"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteStock(${s.id})">
+            <i class="bi bi-trash"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openAddStockModal() {
+  validatedTicker = null;
+  document.getElementById('sTicker').value = '';
+  document.getElementById('sUpper').value = '';
+  document.getElementById('sLower').value = '';
+  document.getElementById('sAlertEmail').checked = true;
+  document.getElementById('tickerFeedback').textContent = '';
+  document.getElementById('stockModalError').classList.add('d-none');
+  stockModal.show();
+}
+
+async function validateTicker() {
+  const ticker = document.getElementById('sTicker').value.trim().toUpperCase();
+  if (!ticker) return;
+  const spin = document.getElementById('validateSpinner');
+  const fb   = document.getElementById('tickerFeedback');
+  spin.classList.remove('d-none');
+  fb.textContent = 'Validating…';
+  fb.className = 'form-text';
+  try {
+    const data = await api('GET', `/api/ticker/${ticker}/validate`);
+    validatedTicker = data;
+    fb.textContent = `✅ ${data.company_name} — Current price: $${data.price.toFixed(2)}`;
+    fb.className = 'form-text text-success';
+  } catch (e) {
+    validatedTicker = null;
+    fb.textContent = `❌ ${e.message}`;
+    fb.className = 'form-text text-danger';
+  } finally {
+    spin.classList.add('d-none');
+  }
+}
+
+async function saveStock() {
+  const ticker     = document.getElementById('sTicker').value.trim().toUpperCase();
+  const upper      = parseFloat(document.getElementById('sUpper').value) || null;
+  const lower      = parseFloat(document.getElementById('sLower').value) || null;
+  const alertEmail = document.getElementById('sAlertEmail').checked;
+  const errEl      = document.getElementById('stockModalError');
+  errEl.classList.add('d-none');
+  if (!ticker) { showErr(errEl, 'Ticker is required'); return; }
+  const company_name = validatedTicker?.ticker === ticker ? validatedTicker.company_name : '';
+  try {
+    await api('POST', `/api/users/${currentUser.user_id}/stocks`, {
+      ticker, company_name, upper_threshold: upper, lower_threshold: lower, alert_email: alertEmail
+    });
+    stockModal.hide();
+    await loadStocks();
+  } catch (e) { showErr(errEl, e.message); }
+}
+
+function openEditStockModal(stock) {
+  editingStockId = stock.id;
+  document.getElementById('editStockTicker').textContent = stock.ticker;
+  document.getElementById('esUpper').value = stock.upper_threshold ?? '';
+  document.getElementById('esLower').value = stock.lower_threshold ?? '';
+  document.getElementById('esAlertEmail').checked = stock.alert_email;
+  document.getElementById('esActive').checked = stock.is_active;
+  document.getElementById('editStockError').classList.add('d-none');
+  editStockModal.show();
+}
+
+async function saveEditStock() {
+  const upper      = parseFloat(document.getElementById('esUpper').value) || null;
+  const lower      = parseFloat(document.getElementById('esLower').value) || null;
+  const alertEmail = document.getElementById('esAlertEmail').checked;
+  const active     = document.getElementById('esActive').checked;
+  const errEl      = document.getElementById('editStockError');
+  errEl.classList.add('d-none');
+  try {
+    await api('PUT', `/api/stocks/${editingStockId}`, {
+      upper_threshold: upper, lower_threshold: lower, alert_email: alertEmail, is_active: active
+    });
+    editStockModal.hide();
+    await loadStocks();
+  } catch (e) { showErr(errEl, e.message); }
+}
+
+async function deleteStock(stockId) {
+  if (!confirm('Remove this stock from watchlist?')) return;
+  try {
+    await api('DELETE', `/api/stocks/${stockId}`);
+    await loadStocks();
+  } catch (e) { alert(e.message); }
+}
+
+// ── Check now ──────────────────────────────────────────────────────────────────
+async function checkNow() {
+  if (!currentUser) return;
+  const btn = document.getElementById('checkNowBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-sm"></span> Checking…';
+  try {
+    const res = await api('POST', '/api/check-now', {});
+    btn.innerHTML = `<i class="bi bi-check-lg"></i> ${res.message}`;
+    setTimeout(async () => {
+      await loadStocks();
+      await loadAlerts();
+    }, 3000);
+  } catch (e) {
+    btn.innerHTML = `<i class="bi bi-exclamation-triangle"></i> Error`;
+    alert(e.message);
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Check Prices Now';
+    }, 5000);
+  }
+}
+
+// ── Alerts ─────────────────────────────────────────────────────────────────────
+async function loadAlerts() {
+  if (!currentUser) return;
+  const alerts = await api('GET', `/api/users/${currentUser.user_id}/alerts`);
+  renderAlerts(alerts.slice(0, 20));
+}
+
+function renderAlerts(alerts) {
+  const tbody = document.getElementById('alertsTableBody');
+  const noMsg = document.getElementById('noAlertsMsg');
+  if (!alerts.length) {
+    tbody.innerHTML = '';
+    noMsg.classList.remove('d-none');
+    return;
+  }
+  noMsg.classList.add('d-none');
+  tbody.innerHTML = alerts.map(a => {
+    const rowClass = a.direction === 'above' ? 'alert-above' : 'alert-below';
+    const dirBadge = a.direction === 'above'
+      ? '<span class="badge bg-warning text-dark">↑ Above</span>'
+      : '<span class="badge bg-danger">↓ Below</span>';
+    const statusBadge = a.success
+      ? '<span class="badge bg-success">Sent</span>'
+      : '<span class="badge bg-secondary">Failed</span>';
+    const time = new Date(a.sent_at + 'Z').toLocaleString();
+    return `
+      <tr class="${rowClass}">
+        <td class="small">${time}</td>
+        <td><strong>${esc(a.ticker)}</strong></td>
+        <td>$${a.price.toFixed(2)}</td>
+        <td>${dirBadge}</td>
+        <td>$${a.threshold.toFixed(2)}</td>
+        <td>${statusBadge}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────────
+function esc(str) {
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+function showErr(el, msg) {
+  el.textContent = msg;
+  el.classList.remove('d-none');
+}
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
